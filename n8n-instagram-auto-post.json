@@ -101,16 +101,14 @@
     },
     {
       "parameters": {
-        "mode": "raw",
-        "jsonOutput": "={{\n  const imgData = $('Generate Image (DALL-E 3)').first().json;\n  const gptData = $('Generate Caption & Hashtags (GPT)').first().json;\n  const imageUrl = imgData.data[0].url;\n  const gptContent = JSON.parse(gptData.choices[0].message.content);\n  \n  return JSON.stringify({\n    imageUrl: imageUrl,\n    revisedPrompt: imgData.data[0].revised_prompt || '',\n    caption: gptContent.caption,\n    hashtags: gptContent.hashtags,\n    fullCaption: gptContent.caption + '\\n\\n' + gptContent.hashtags\n  })\n}}",
-        "options": {}
+        "jsCode": "const imgData = $('Generate Image (DALL-E 3)').first().json;\nconst gptData = $('Generate Caption & Hashtags (GPT)').first().json;\n\nconst imageUrl = imgData.data[0].url;\nconst revisedPrompt = imgData.data[0].revised_prompt || '';\n\nlet caption = '';\nlet hashtags = '';\ntry {\n  const content = gptData.choices[0].message.content;\n  const parsed = JSON.parse(content);\n  caption = parsed.caption || '';\n  hashtags = parsed.hashtags || '';\n} catch (e) {\n  caption = gptData.choices[0].message.content || '';\n}\n\nreturn [{\n  json: {\n    imageUrl,\n    revisedPrompt,\n    caption,\n    hashtags,\n    fullCaption: caption + '\\n\\n' + hashtags\n  }\n}];"
       },
       "id": "merge-results",
       "name": "Merge Image + Caption",
-      "type": "n8n-nodes-base.set",
-      "typeVersion": 3.4,
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
       "position": [660, 100],
-      "notes": "Combines the generated image URL and caption/hashtags into a single payload."
+      "notes": "Code node: pulls from both upstream branches and merges image URL + caption/hashtags."
     },
     {
       "parameters": {
@@ -146,14 +144,12 @@
     },
     {
       "parameters": {
-        "mode": "raw",
-        "jsonOutput": "={{\n  JSON.stringify({\n    success: true,\n    instagramPostId: $json.id,\n    caption: $('Merge Image + Caption').first().json.fullCaption,\n    imageUrl: $('Merge Image + Caption').first().json.imageUrl,\n    timestamp: new Date().toISOString()\n  })\n}}",
-        "options": {}
+        "jsCode": "const mergeData = $('Merge Image + Caption').first().json;\n\nreturn [{\n  json: {\n    success: true,\n    instagramPostId: $input.first().json.id,\n    caption: mergeData.fullCaption,\n    imageUrl: mergeData.imageUrl,\n    timestamp: new Date().toISOString()\n  }\n}];"
       },
       "id": "success-result",
       "name": "Post Result",
-      "type": "n8n-nodes-base.set",
-      "typeVersion": 3.4,
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
       "position": [1320, 100],
       "notes": "Final output with the Instagram post ID and details."
     },
