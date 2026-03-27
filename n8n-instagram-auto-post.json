@@ -1,0 +1,282 @@
+{
+  "name": "Instagram Auto Post - Image + Caption + Hashtags",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "hours",
+              "hoursInterval": 24
+            }
+          ]
+        }
+      },
+      "id": "schedule-trigger",
+      "name": "Schedule Trigger",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [0, 0],
+      "notes": "Runs daily. You can also switch to a Manual Trigger for testing."
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "topic",
+              "name": "topic",
+              "value": "technology and artificial intelligence",
+              "type": "string"
+            },
+            {
+              "id": "style",
+              "name": "style",
+              "value": "modern, clean, vibrant colors, professional",
+              "type": "string"
+            },
+            {
+              "id": "brand_voice",
+              "name": "brand_voice",
+              "value": "informative, engaging, slightly casual",
+              "type": "string"
+            }
+          ]
+        }
+      },
+      "id": "set-config",
+      "name": "Set Topic & Style",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [220, 0],
+      "notes": "Configure your content topic, image style, and brand voice here."
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.openai.com/v1/images/generations",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{\n  JSON.stringify({\n    model: 'dall-e-3',\n    prompt: 'Create a visually stunning social media post image about: ' + $json.topic + '. Style: ' + $json.style + '. The image should be eye-catching, suitable for Instagram feed, square aspect ratio, no text overlays.',\n    n: 1,\n    size: '1024x1024',\n    quality: 'hd'\n  })\n}}",
+        "options": {}
+      },
+      "id": "generate-image",
+      "name": "Generate Image (DALL-E 3)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [440, 0],
+      "notes": "Generates a 1024x1024 image via OpenAI DALL-E 3. Requires OPENAI_API_KEY in HTTP Header Auth.",
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "REPLACE_WITH_OPENAI_CREDENTIAL_ID",
+          "name": "OpenAI API Key"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.openai.com/v1/chat/completions",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{\n  JSON.stringify({\n    model: 'gpt-4o',\n    messages: [\n      {\n        role: 'system',\n        content: 'You are an expert social media copywriter for Instagram. Generate engaging captions and relevant hashtags. Respond ONLY with valid JSON in this exact format: {\"caption\": \"...\", \"hashtags\": \"...\"}. The caption should be 2-4 sentences, engaging, and match the brand voice. Include 15-25 relevant hashtags as a single string separated by spaces, each starting with #. No markdown, no extra text.'\n      },\n      {\n        role: 'user',\n        content: 'Write an Instagram caption and hashtags for a post about: ' + $json.topic + '. Brand voice: ' + $json.brand_voice + '.'\n      }\n    ],\n    temperature: 0.8,\n    max_tokens: 500\n  })\n}}",
+        "options": {}
+      },
+      "id": "generate-caption",
+      "name": "Generate Caption & Hashtags (GPT)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [440, 220],
+      "notes": "Uses GPT-4o to generate an Instagram caption and hashtags. Same OpenAI API key.",
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "REPLACE_WITH_OPENAI_CREDENTIAL_ID",
+          "name": "OpenAI API Key"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "mode": "raw",
+        "jsonOutput": "={{\n  const imgData = $('Generate Image (DALL-E 3)').first().json;\n  const gptData = $('Generate Caption & Hashtags (GPT)').first().json;\n  const imageUrl = imgData.data[0].url;\n  const gptContent = JSON.parse(gptData.choices[0].message.content);\n  \n  return JSON.stringify({\n    imageUrl: imageUrl,\n    revisedPrompt: imgData.data[0].revised_prompt || '',\n    caption: gptContent.caption,\n    hashtags: gptContent.hashtags,\n    fullCaption: gptContent.caption + '\\n\\n' + gptContent.hashtags\n  })\n}}",
+        "options": {}
+      },
+      "id": "merge-results",
+      "name": "Merge Image + Caption",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [660, 100],
+      "notes": "Combines the generated image URL and caption/hashtags into a single payload."
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://graph.facebook.com/v19.0/{{ $env.INSTAGRAM_BUSINESS_ACCOUNT_ID }}/media",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{\n  JSON.stringify({\n    image_url: $json.imageUrl,\n    caption: $json.fullCaption,\n    access_token: $env.FACEBOOK_PAGE_ACCESS_TOKEN\n  })\n}}",
+        "options": {}
+      },
+      "id": "ig-create-container",
+      "name": "IG: Create Media Container",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [880, 100],
+      "notes": "Step 1 of IG publish: creates a media container. Needs INSTAGRAM_BUSINESS_ACCOUNT_ID and FACEBOOK_PAGE_ACCESS_TOKEN env vars."
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://graph.facebook.com/v19.0/{{ $env.INSTAGRAM_BUSINESS_ACCOUNT_ID }}/media_publish",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{\n  JSON.stringify({\n    creation_id: $json.id,\n    access_token: $env.FACEBOOK_PAGE_ACCESS_TOKEN\n  })\n}}",
+        "options": {}
+      },
+      "id": "ig-publish",
+      "name": "IG: Publish Post",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1100, 100],
+      "notes": "Step 2 of IG publish: publishes the container. This posts to your Instagram feed."
+    },
+    {
+      "parameters": {
+        "mode": "raw",
+        "jsonOutput": "={{\n  JSON.stringify({\n    success: true,\n    instagramPostId: $json.id,\n    caption: $('Merge Image + Caption').first().json.fullCaption,\n    imageUrl: $('Merge Image + Caption').first().json.imageUrl,\n    timestamp: new Date().toISOString()\n  })\n}}",
+        "options": {}
+      },
+      "id": "success-result",
+      "name": "Post Result",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [1320, 100],
+      "notes": "Final output with the Instagram post ID and details."
+    },
+    {
+      "parameters": {},
+      "id": "manual-trigger",
+      "name": "Manual Trigger (Test)",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [0, 220],
+      "notes": "Use this for manual test runs instead of the schedule."
+    }
+  ],
+  "connections": {
+    "Schedule Trigger": {
+      "main": [
+        [
+          {
+            "node": "Set Topic & Style",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Manual Trigger (Test)": {
+      "main": [
+        [
+          {
+            "node": "Set Topic & Style",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Set Topic & Style": {
+      "main": [
+        [
+          {
+            "node": "Generate Image (DALL-E 3)",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Generate Caption & Hashtags (GPT)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Generate Image (DALL-E 3)": {
+      "main": [
+        [
+          {
+            "node": "Merge Image + Caption",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Generate Caption & Hashtags (GPT)": {
+      "main": [
+        [
+          {
+            "node": "Merge Image + Caption",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Merge Image + Caption": {
+      "main": [
+        [
+          {
+            "node": "IG: Create Media Container",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IG: Create Media Container": {
+      "main": [
+        [
+          {
+            "node": "IG: Publish Post",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IG: Publish Post": {
+      "main": [
+        [
+          {
+            "node": "Post Result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "meta": {
+    "templateCredsSetupCompleted": false
+  },
+  "tags": [
+    {
+      "name": "instagram"
+    },
+    {
+      "name": "social-media"
+    },
+    {
+      "name": "ai-generated"
+    }
+  ]
+}
